@@ -54,6 +54,9 @@ public sealed class Settings
 
     public List<string> Items { get; set; } = [.. Metrics.DefaultIds];
 
+    /// <summary>Yazı boyutu: 0 küçük, 1 orta (varsayılan), 2 büyük.</summary>
+    public int FontSize { get; set; } = 1;
+
     /// <summary>Pencerenin sol kenarının görev çubuğunun sol kenarına uzaklığı (piksel). null: varsayılan (sol uç).</summary>
     public int? LeftGap { get; set; }
 

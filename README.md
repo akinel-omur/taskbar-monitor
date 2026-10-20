@@ -23,7 +23,7 @@ Tek dosya yayınlamak için: `dotnet publish -c Release -o publish`
 ## Kullanım
 
 - **Sürükle (sol tık):** konumu değiştirir, kaydedilir.
-- **Sağ tık:** hangi değerlerin gösterileceği, "Windows ile birlikte başlat", "Konumu sıfırla", "Çıkış".
+- **Sağ tık:** hangi değerlerin gösterileceği, yazı boyutu (küçük/orta/büyük), "Windows ile birlikte başlat", "Konumu sıfırla", "Çıkış".
 - Tam ekran uygulama/oyun öndeyken gösterge gizlenir.
 - Ayarlar: `%APPDATA%\TaskbarMonitor\settings.json`
 

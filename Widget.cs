@@ -17,6 +17,14 @@ sealed class Widget : Form
     const string AutostartKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     const string AutostartName = "TaskbarMonitor";
 
+    // Piksel (DPI=96'ya göre) cinsinden: etiket yazısı, değer yazısı, satır aralığı. İki satır = 2 x Pitch.
+    static readonly (string Name, float Label, float Value, float Pitch)[] FontSizes =
+    [
+        ("Küçük", 9f, 10.5f, 12.5f),
+        ("Orta", 10f, 11.5f, 14f),
+        ("Büyük", 11f, 13f, 16f),
+    ];
+
     readonly Settings _settings = Settings.Load();
     readonly Sensors _sensors = new();
     readonly System.Windows.Forms.Timer _tick = new() { Interval = 1000 };
@@ -125,8 +133,9 @@ sealed class Widget : Form
         var textColor = light ? Color.FromArgb(255, 20, 20, 20) : Color.FromArgb(255, 245, 245, 245);
         var dimColor = light ? Color.FromArgb(255, 95, 95, 95) : Color.FromArgb(255, 170, 170, 170);
 
-        using var labelFont = new Font(_fontName, 11f * scale, FontStyle.Regular, GraphicsUnit.Pixel);
-        using var valueFont = new Font(_fontName, 13f * scale, FontStyle.Bold, GraphicsUnit.Pixel);
+        var preset = FontSizes[Math.Clamp(_settings.FontSize, 0, FontSizes.Length - 1)];
+        using var labelFont = new Font(_fontName, preset.Label * scale, FontStyle.Regular, GraphicsUnit.Pixel);
+        using var valueFont = new Font(_fontName, preset.Value * scale, FontStyle.Bold, GraphicsUnit.Pixel);
         var fmt = (StringFormat)StringFormat.GenericTypographic.Clone();
         fmt.FormatFlags |= StringFormatFlags.NoWrap | StringFormatFlags.MeasureTrailingSpaces;
 
@@ -164,13 +173,15 @@ sealed class Widget : Form
             g.Clear(Color.FromArgb(1, 0, 0, 0)); // neredeyse görünmez ama fare tıklamasını yakalar
             g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
 
-            var rowH = height / 2f;
+            // İki satır görev çubuğunun tamamını değil, ortadaki simge bandını doldursun.
+            var rowH = preset.Pitch * scale;
+            var top = (height - 2 * rowH) / 2f;
             using var dimBrush = new SolidBrush(dimColor);
 
             void DrawText(string text, Font font, Brush brush, float x, int row, bool alignRight, float right)
             {
                 var size = g.MeasureString(text, font, PointF.Empty, fmt);
-                g.DrawString(text, font, brush, alignRight ? right - size.Width : x, row * rowH + rowH / 2f - size.Height / 2f, fmt);
+                g.DrawString(text, font, brush, alignRight ? right - size.Width : x, top + row * rowH + rowH / 2f - size.Height / 2f, fmt);
             }
 
             var x0 = padX;
@@ -322,7 +333,17 @@ sealed class Widget : Form
 
         _menu.Items.Add(new ToolStripSeparator());
 
-        var auto = new ToolStripMenuItem("Windows ile birlikte başlat") { Name = "auto", CheckOnClick = true };
+        var sizeMenu = new ToolStripMenuItem("Yazı boyutu") { Name = "size" };
+        for (var i = 0; i < FontSizes.Length; i++)
+        {
+            var index = i;
+            var item = new ToolStripMenuItem(FontSizes[i].Name);
+            item.Click += (_, _) => { _settings.FontSize = index; _settings.Save(); Redraw(); };
+            sizeMenu.DropDownItems.Add(item);
+        }
+        _menu.Items.Add(sizeMenu);
+
+        var auto =new ToolStripMenuItem("Windows ile birlikte başlat") { Name = "auto", CheckOnClick = true };
         auto.CheckedChanged += (_, _) => SetAutostart(auto.Checked);
         _menu.Items.Add(auto);
 
@@ -350,6 +371,9 @@ sealed class Widget : Form
             if (i is not ToolStripMenuItem mi) continue;
             if (mi.Tag is Metric m) mi.Checked = _settings.Items.Contains(m.Id);
             else if (mi.Name == "auto") mi.Checked = IsAutostart();
+            else if (mi.Name == "size")
+                for (var s = 0; s < mi.DropDownItems.Count; s++)
+                    ((ToolStripMenuItem)mi.DropDownItems[s]).Checked = s == Math.Clamp(_settings.FontSize, 0, FontSizes.Length - 1);
         }
     }
 
