@@ -7,4 +7,5 @@ Windows 11 görev çubuğunda sıcaklık/watt/fan devri gösteren küçük bir W
 - GUI'siz sensör denemesi: `TaskbarMonitor.exe --probe <dosya>` (`Start-Process -Wait` ile çalıştır).
 - Sürücü gerektiren sensör kütüphanesi ekleme (yönetici yetkisi/ek kurulum yok kuralı); sensör kaynakları `Sensors.cs` başında listeli.
 - Kullanıcı bilgisayarı kullanırken fare/klavye girdisi enjekte etme; görsel doğrulamayı ekran görüntüsüyle, salt okuma yap.
+- Claude masaüstü uygulaması MSIX paketli: Claude'un kabuğundan yazılan `AppData`/`HKCU` değerleri kullanıcının gerçek sistemine gitmez (ayrıntı: `HANDOFF.md` §3 madde 10). Kalıcı kurulum `Documents\TaskbarMonitor`; gerçek kayıt/ayar yazımını kullanıcının kısayoldan açtığı örnek yapar. Paket yalıtımını WMI vb. ile aşmaya çalışma.
 - Windows Türkçe: performans sayaçlarını yalnızca İngilizce adla (`PdhAddEnglishCounterW`) ekle.

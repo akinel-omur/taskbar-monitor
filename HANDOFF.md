@@ -41,6 +41,12 @@ Kullanıcı (Türkçe konuşuyor) görev çubuğunda laptopun **ısısını, gü
 7. **Simgeler ortalı** olduğundan sağ taraf (tepsinin solu) simgelerin üstüne biniyordu → varsayılan konum **sol uç** yapıldı (`Settings.LeftGap`, varsayılan 12×ölçek px). `TrayNotifyWnd` Win11'de güvenilmez olduğu için tamamen kaldırıldı.
 8. Yüksek DPI: csproj'da `ApplicationHighDpiMode=PerMonitorV2`; yazı tipleri piksel birimiyle `GraphicsUnit.Pixel`, boyut × (DPI/96).
 9. Sütun genişliği, her sütun için sabit bir "en geniş örnek" metinle ölçülüyor (`Metric.Sample`), böylece değer değişince pencere titremiyor.
+10. **Claude masaüstü uygulaması MSIX paketli (`Claude_pzs8sxrjxfjjc`) — dosya ve kayıt defteri yazmaları yönlendiriliyor.** Claude'un kabuğundan (PowerShell/Bash araçları dahil) başlatılan her süreç paket bağlamını devralır:
+    - `%APPDATA%` ve `%LOCALAPPDATA%` altına yazılanlar fiziksel olarak `C:\Users\ASUS\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\{Roaming|Local}\...` içine gider; oturum klasörü de oradadır. Araçların gösterdiği `C:\Users\ASUS\AppData\Roaming\Claude\scratch-workspaces\...` yolu kullanıcının Gezgini'nde **yok**.
+    - `HKCU` yazmaları da paketin sanal hive'ına gider. Claude içinden çalışan widget "Windows ile başlat"ı işaretlerse **gerçek Windows başlangıcına yazılmaz** (doğrulandı: gerçek `Run`'da kayıt yoktu, Claude içinden `reg query` ise gösteriyordu).
+    - `Documents` ve `Desktop` yönlendirilmez; kalıcı kurulum buraya yapıldı.
+    - Paket dışından görünüm için WMI `Win32_Process.Create` ile salt okuma yapılabildi, ama **yazma için kullanma**: otomatik izin sınıflandırıcısı bunu "Containment Escape" diye reddetti ve haklı; paket yalıtımını aşmaya çalışma. Gerçek kayıt/ayar yazımı kullanıcının kendi başlattığı örnekten (kısayol → menü) olmalı.
+    - Sonuç: widget'ı kullanıcının kalıcı kullanımı için Claude'un kabuğundan başlatma; kalıcı kullanım kısayoldan. Geliştirme testlerinde Claude içinden başlatmak sorun değil.
 
 ## 4. Geliştirme / doğrulama yöntemi
 
@@ -57,10 +63,15 @@ Görsel doğrulama: PowerShell'de `SetProcessDPIAware()` çağırıp `Graphics.C
 
 **Uyarı:** Kullanıcı aynı anda bilgisayarı kullanıyor olabilir. Fare/klavye girdisi enjekte etmek (`mouse_event` vb.) onun oturumuna karışır; bir kez kullanıcının açtığı menüyle çakıştı. Girdi göndermeden, salt okuma ile doğrula; etkileşim testini kullanıcıdan iste.
 
+### Kapat / aç (kullanıcı sordu)
+- **Kapatmak:** widget'a sağ tık → **Çıkış**.
+- **Açmak:** masaüstündeki `TaskbarMonitor` kısayolu (ya da `Documents\TaskbarMonitor\TaskbarMonitor.exe`). Tek örnek mutex'i (`Local\TaskbarMonitor.Single`) olduğundan çalışırken tekrar açmak hiçbir şey yapmaz; önce Çıkış.
+- **Güncellemek:** çalışan süreci durdur → `dotnet publish -c Release -o C:\Users\ASUS\Documents\TaskbarMonitor -p:DebugType=none` → kısayoldan aç.
+
 ## 5. Açık işler (öncelik sırasıyla)
 
 1. ~~**Yazı bloğu görev çubuğundan "uzun" görünüyor**~~ — **ÇÖZÜLDÜ (2026-10-20).** Kullanıcı "sekme boy olarak uzadı, boyu uzatmayacak yazı boyutu olsun" dedi ve ekran görüntüsü gönderdi: iki satır görev çubuğunun (72 px) tamamını dolduruyor, simgeler ise ortadaki ~24 px'lik bantta duruyordu. Çözüm: satır aralığı artık `FontSizes[].Pitch` (dp) ile sabit ve blok dikey ortalanıyor; varsayılan "Orta" = etiket 10 / değer 11,5 / satır 14 dp (eskisi 11 / 13 / 24 dp). Sağ tık → **Yazı boyutu: Küçük/Orta/Büyük** (`Settings.FontSize`). Ölçüm: yazı bloğu ~33 px, simge bandı ~24 px, satırlar simge bandıyla hizalı. Kullanıcı hâlâ büyük bulursa varsayılanı "Küçük"e çek.
-2. **Otomatik başlatma yolu kalıcı olsun.** Menüdeki "Windows ile birlikte başlat" `Environment.ProcessPath` yazıyor. Kullanıcı bunu, geçici oturum klasöründeki derleme çıktısı için açmış; o klasör silinirse başlatma boşa düşer. Çözüm: `dotnet publish -c Release -o publish` ile tek dosya üret, kalıcı bir konuma koy (ör. `%LOCALAPPDATA%\TaskbarMonitor`), seçeneği kapatıp yeniden aç. İstenirse uygulama açılışta kayıtlı yolun var olduğunu kontrol edip kendini düzeltebilir.
+2. **Otomatik başlatma — kullanıcıdan tek tıklık eylem bekliyor.** Kalıcı kurulum yapıldı: `C:\Users\ASUS\Documents\TaskbarMonitor\TaskbarMonitor.exe` (tek dosya, `dotnet publish -c Release --no-build -o ... -p:DebugType=none`) ve masaüstünde `TaskbarMonitor.lnk` kısayolu var. Ama **gerçek** `HKCU\...\Run` anahtarında `TaskbarMonitor` kaydı YOK (§3 madde 10): kullanıcının önceki işareti yalnızca Claude'un sanal kayıt defterine gitti. Kullanıcı widget'ı masaüstü kısayolundan (Claude'un dışından) açıp menüden **"Windows ile birlikte başlat"**ı bir kez işaretlemeli; o zaman gerçek anahtara kalıcı exe yolu yazılır. Aynı sebeple kullanıcının eski ayarı (RAM/Pil sütunu, konum `LeftGap=18`) gerçek `%APPDATA%\TaskbarMonitor\settings.json`'a taşınmadı; paket dışından açılan örnek varsayılanlarla başlar (sütunları yeniden işaretlemesi gerekir). Bu bir kerelik; sonra ayarlar gerçek konuma yazılır.
 3. **Doğrulanmamışları sına** (bkz. §2): sürükleme, tam ekran gizleme, tek seferlik kaybolma (muhtemel neden: bir tıklama sonrası görev çubuğunun z-sırasında öne geçmesi; `KeepOnTop` aralığını/izlemeyi gözden geçir).
 4. Olası özellikler (hepsi isteğe bağlı): yenileme aralığı ayarı, renk/tema ayarı, fare üstünde ayrıntı ipucu, SSD/çekirdek başına sıcaklık, çoklu monitör, GPU uykudayken NVML'in uyandırıp uyandırmadığının ölçümü (pil ömrü), yayın için GitHub Release / Actions.
 5. Bellek ~90 MB: istenirse font/Bitmap tahsislerini döngüden çıkar (her `Redraw`'da yeni `Font`/`Bitmap` üretiliyor) ve ölç.
