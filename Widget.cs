@@ -64,6 +64,8 @@ sealed class Widget : Form
     bool _iconBusy;
     int _iconTick;
     int _shownCount = -1;
+    UpdateInfo? _update;        // bulunmuş yeni sürüm
+    bool _updating;
     Graphics? _measureG;
     readonly UserPreferenceChangedEventHandler _prefChanged;
 
@@ -83,7 +85,7 @@ sealed class Widget : Form
         BuildMenu();
         _tick.Tick += (_, _) => Poll();
         _zorder.Tick += (_, _) => KeepOnTop();
-        Load += (_, _) => { Poll(); _tick.Start(); _zorder.Start(); };
+        Load += (_, _) => { Poll(); _tick.Start(); _zorder.Start(); if (_settings.AutoUpdate) _ = CheckUpdatesAsync(manual: false); };
         _prefChanged = (_, _) => { if (IsHandleCreated) BeginInvoke(Redraw); };
         SystemEvents.UserPreferenceChanged += _prefChanged;
         FormClosed += (_, _) =>
@@ -459,6 +461,19 @@ sealed class Widget : Form
         reset.Click += (_, _) => { _settings.LeftGap = null; _settings.Save(); Redraw(); };
         _menu.Items.Add(reset);
 
+        var autoUpdate = new ToolStripMenuItem("Açılışta güncellemeyi denetle") { Name = "autoupdate", CheckOnClick = true };
+        autoUpdate.CheckedChanged += (_, _) =>
+        {
+            if (_settings.AutoUpdate == autoUpdate.Checked) return;
+            _settings.AutoUpdate = autoUpdate.Checked;
+            _settings.Save();
+        };
+        _menu.Items.Add(autoUpdate);
+
+        var update = new ToolStripMenuItem { Name = "update" };
+        update.Click += async (_, _) => await OnUpdateClickAsync();
+        _menu.Items.Add(update);
+
         var exit = new ToolStripMenuItem("Çıkış");
         exit.Click += (_, _) => Close();
         _menu.Items.Add(exit);
@@ -479,6 +494,9 @@ sealed class Widget : Form
             if (i is not ToolStripMenuItem mi) continue;
             if (mi.Tag is Metric m) mi.Checked = _settings.Items.Contains(m.Id);
             else if (mi.Name == "auto") mi.Checked = IsAutostart();
+            else if (mi.Name == "autoupdate") mi.Checked = _settings.AutoUpdate;
+            else if (mi.Name == "update")
+                mi.Text = _update is { } u ? $"Yeni sürüm var: v{u.Version} — güncelle" : $"Güncellemeleri denetle (v{Updater.Current})";
             else if (mi.Name is "size" or "refresh" or "temp")
             {
                 var current = mi.Name switch
@@ -490,6 +508,49 @@ sealed class Widget : Form
                 for (var s = 0; s < mi.DropDownItems.Count; s++)
                     ((ToolStripMenuItem)mi.DropDownItems[s]).Checked = s == current;
             }
+        }
+    }
+
+    // ---------------------------------------------------------------- güncelleme
+
+    async Task CheckUpdatesAsync(bool manual)
+    {
+        try
+        {
+            if (!manual) await Task.Delay(5000); // açılışı yavaşlatma
+            _update = await Updater.CheckAsync();
+            DebugLog.Write(_update is { } u ? $"Yeni sürüm: v{u.Version}" : "Güncel");
+            if (manual && _update is null)
+                MessageBox.Show($"Güncel sürümü kullanıyorsun (v{Updater.Current}).", "Güncelleme", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            DebugLog.Write("Güncelleme denetimi başarısız: " + ex.Message);
+            if (manual) MessageBox.Show("Güncelleme denetlenemedi:\n" + ex.Message, "Güncelleme", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    async Task OnUpdateClickAsync()
+    {
+        if (_updating) return;
+        if (_update is null) { await CheckUpdatesAsync(manual: true); if (_update is null) return; }
+
+        var ask = MessageBox.Show(
+            $"v{_update.Version} indirilip yüklenecek ve uygulama yeniden başlayacak.\n(Şu anki sürüm: v{Updater.Current})\n\nDevam edilsin mi?",
+            "Güncelle", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+        if (ask != DialogResult.Yes) return;
+
+        _updating = true;
+        try
+        {
+            await Updater.InstallAsync(_update);
+            Close(); // yeni süreç bunun kapanmasını bekler
+        }
+        catch (Exception ex)
+        {
+            _updating = false;
+            DebugLog.Write("Güncelleme başarısız: " + ex.Message);
+            MessageBox.Show("Güncelleme yüklenemedi:\n" + ex.Message, "Güncelleme", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 

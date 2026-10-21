@@ -28,6 +28,12 @@ Tek dosya yayınlamak için: `dotnet publish -c Release -o publish`
 - Ayarlar: `%APPDATA%\TaskbarMonitor\settings.json`
 - `TaskbarMonitor.exe --debug`: gizle/göster geçişlerini `%APPDATA%\TaskbarMonitor\debug.log` dosyasına yazar.
 
+## Güncelleme
+
+Sağ tık → **Güncellemeleri denetle** (ya da açılışta otomatik; menüden kapatılabilir). Yeni sürüm varsa GitHub Releases'ten `TaskbarMonitor.exe` indirilir, `TaskbarMonitor.exe.sha256` ile doğrulanır, yerine konur ve uygulama yeniden başlar. Yönetici yetkisi gerekmez; exe'nin bulunduğu klasör yazılabilir olmalı.
+
+Yeni sürüm yayınlamak için `main`'de bir etiket at: `git tag v1.2.0 && git push origin v1.2.0`. CI uygulamayı o sürüm numarasıyla derler ve Release'e exe + sha256 dosyasını yükler.
+
 ## Değerler nereden okunuyor
 
 | Değer | Kaynak |
