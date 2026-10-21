@@ -26,6 +26,7 @@ Tek dosya yayınlamak için: `dotnet publish -c Release -o publish`
 - **Sağ tık:** hangi değerlerin gösterileceği, yazı boyutu (küçük/orta/büyük), "Windows ile birlikte başlat", "Konumu sıfırla", "Çıkış".
 - Tam ekran uygulama/oyun öndeyken gösterge gizlenir.
 - Ayarlar: `%APPDATA%\TaskbarMonitor\settings.json`
+- `TaskbarMonitor.exe --debug`: gizle/göster geçişlerini `%APPDATA%\TaskbarMonitor\debug.log` dosyasına yazar.
 
 ## Değerler nereden okunuyor
 

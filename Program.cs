@@ -14,6 +14,8 @@ static class Program
             return;
         }
 
+        DebugLog.Enabled = args.Contains("--debug");
+
         using var single = new Mutex(true, @"Local\TaskbarMonitor.Single", out var isFirst);
         if (!isFirst) return;
 
