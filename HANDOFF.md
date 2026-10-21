@@ -1,6 +1,6 @@
 # HANDOFF — TaskbarMonitor
 
-Bu dosya, çalışmayı başka bir oturumda (Claude Code vb.) kaldığı yerden sürdürmek için yazıldı. Önce bunu, sonra `CLAUDE.md`'yi oku. Tarih: 2026-10-20.
+Bu dosya, çalışmayı başka bir oturumda (Claude Code vb.) kaldığı yerden sürdürmek için yazıldı. Önce bunu, sonra `CLAUDE.md`'yi oku. Tarih: 2026-10-20, son güncelleme 2026-10-21.
 
 ## 1. Amaç
 
@@ -72,9 +72,10 @@ Görsel doğrulama: PowerShell'de `SetProcessDPIAware()` çağırıp `Graphics.C
 
 1. ~~**Yazı bloğu görev çubuğundan "uzun" görünüyor**~~ — **ÇÖZÜLDÜ (2026-10-20).** Kullanıcı "sekme boy olarak uzadı, boyu uzatmayacak yazı boyutu olsun" dedi ve ekran görüntüsü gönderdi: iki satır görev çubuğunun (72 px) tamamını dolduruyor, simgeler ise ortadaki ~24 px'lik bantta duruyordu. Çözüm: satır aralığı artık `FontSizes[].Pitch` (dp) ile sabit ve blok dikey ortalanıyor; varsayılan "Orta" = etiket 10 / değer 11,5 / satır 14 dp (eskisi 11 / 13 / 24 dp). Sağ tık → **Yazı boyutu: Küçük/Orta/Büyük** (`Settings.FontSize`). Ölçüm: yazı bloğu ~33 px, simge bandı ~24 px, satırlar simge bandıyla hizalı. Kullanıcı hâlâ büyük bulursa varsayılanı "Küçük"e çek.
 2. **Otomatik başlatma — kullanıcıdan tek tıklık eylem bekliyor.** Kalıcı kurulum yapıldı: `C:\Users\ASUS\Documents\TaskbarMonitor\TaskbarMonitor.exe` (tek dosya, `dotnet publish -c Release --no-build -o ... -p:DebugType=none`) ve masaüstünde `TaskbarMonitor.lnk` kısayolu var. Ama **gerçek** `HKCU\...\Run` anahtarında `TaskbarMonitor` kaydı YOK (§3 madde 10): kullanıcının önceki işareti yalnızca Claude'un sanal kayıt defterine gitti. Kullanıcı widget'ı masaüstü kısayolundan (Claude'un dışından) açıp menüden **"Windows ile birlikte başlat"**ı bir kez işaretlemeli; o zaman gerçek anahtara kalıcı exe yolu yazılır. Aynı sebeple kullanıcının eski ayarı (RAM/Pil sütunu, konum `LeftGap=18`) gerçek `%APPDATA%\TaskbarMonitor\settings.json`'a taşınmadı; paket dışından açılan örnek varsayılanlarla başlar (sütunları yeniden işaretlemesi gerekir). Bu bir kerelik; sonra ayarlar gerçek konuma yazılır.
-3. **Doğrulanmamışları sına** (bkz. §2): sürükleme, tam ekran gizleme, tek seferlik kaybolma (muhtemel neden: bir tıklama sonrası görev çubuğunun z-sırasında öne geçmesi; `KeepOnTop` aralığını/izlemeyi gözden geçir).
+3. **Doğrulanmamışları sına** (bkz. §2): tam ekran gizleme ve tek seferlik kaybolma. Sürükleme 2026-10-21'de kullanıcıyla doğrulandı (takılma/titreme yok). Kaybolma için neden bilinmiyor; `--debug` ile açılınca `%APPDATA%\TaskbarMonitor\debug.log` gizle/göster geçişlerini ön plandaki pencerenin sınıfı ve boyutuyla yazar. Bir sonraki kaybolmada o dosyaya bak, tahminle değiştirme.
+   - **2026-10-21 yapılanlar:** (a) Yan yana çakışma: sütun arası 9, kenar 4, varsayılan sol boşluk 4 dp'ye çekildi; çok simge açıkken yine çakışabilir (kalıcı çözüm adayı: UI Automation ile simge şeridinin başlangıcını ölçüp sığmayan sütunları gizlemek). (b) Font/ölçüm `Graphics` önbelleği, `UserPreferenceChanged` aboneliğinin kaldırılması, `Sensors.Read/Dispose` kilidi. Kullanıcı yazı okunurluğu, boyut değişimi ve sürüklemeyi doğruladı. Bellek kazancı ölçülmedi. (c) `.github/workflows/build.yml`: Windows'ta derleme + tek dosya yayın artifact'ı; bulut oturumunda `dotnet` olmadığından derleme doğrulaması buradan alınır.
 4. Olası özellikler (hepsi isteğe bağlı): yenileme aralığı ayarı, renk/tema ayarı, fare üstünde ayrıntı ipucu, SSD/çekirdek başına sıcaklık, çoklu monitör, GPU uykudayken NVML'in uyandırıp uyandırmadığının ölçümü (pil ömrü), yayın için GitHub Release / Actions.
-5. Bellek ~90 MB: istenirse font/Bitmap tahsislerini döngüden çıkar (her `Redraw`'da yeni `Font`/`Bitmap` üretiliyor) ve ölç.
+5. Bellek ~90 MB: font/Bitmap tahsisleri önbelleğe alındı (2026-10-21); kazancı ölçülmedi.
 
 ## 6. Yapma
 
