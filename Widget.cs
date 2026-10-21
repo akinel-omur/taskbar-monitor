@@ -144,7 +144,7 @@ sealed class Widget : Form
         mg.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
         float Measure(string t, Font f) => mg.MeasureString(t, f, PointF.Empty, fmt).Width;
 
-        float gap = 5 * scale, colGap = 14 * scale, padX = 8 * scale;
+        float gap = 5 * scale, colGap = 9 * scale, padX = 4 * scale;
 
         // Satır etiketleri (CPU / GPU) yalnızca etiketsiz hücre varsa gerekir.
         var rowLabels = metrics.Any(m => m.Top is { Label: null } || m.Bottom is { Label: null });
@@ -211,7 +211,7 @@ sealed class Widget : Form
         }
 
         // Konum: görev çubuğunun sol ucu (ya da kullanıcının sürüklediği yer), çubukla aynı yükseklik
-        var leftGap = _settings.LeftGap ?? (int)(12 * scale);
+        var leftGap = _settings.LeftGap ?? (int)(4 * scale);
         leftGap = Math.Clamp(leftGap, 0, Math.Max(0, taskbar.Width - width));
         _bounds = new Rectangle(taskbar.Left + leftGap, taskbar.Top, width, height);
 
