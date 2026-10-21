@@ -43,6 +43,10 @@ sealed class Widget : Form
     Font? _labelFont, _valueFont;
     (int Size, uint Dpi) _fontKey;
     Bitmap? _measureBmp;
+    int _iconsLeft;             // simge şeridinin sol kenarı (ekran px); 0: bilinmiyor
+    bool _iconBusy;
+    int _iconTick;
+    int _shownCount = -1;
     Graphics? _measureG;
     readonly UserPreferenceChangedEventHandler _prefChanged;
 
@@ -92,8 +96,31 @@ sealed class Widget : Form
 
     // ---------------------------------------------------------------- okuma döngüsü
 
+    /// <summary>UI Automation yavaş olabilir: arka planda, birkaç turda bir ölç.</summary>
+    void RefreshIconsLeft()
+    {
+        if (_iconBusy || _iconTick++ % 3 != 0) return;
+        _iconBusy = true;
+        Task.Run(() =>
+        {
+            try
+            {
+                var tb = FindWindow("Shell_TrayWnd", null);
+                if (tb != 0 && TaskbarIcons.LeftEdge(tb) is { } left && left != _iconsLeft)
+                {
+                    _iconsLeft = left;
+                    DebugLog.Write($"Simge şeridi sol kenarı: {left}");
+                    if (IsHandleCreated && !IsDisposed) BeginInvoke(Redraw);
+                }
+            }
+            catch { }
+            finally { _iconBusy = false; }
+        });
+    }
+
     void Poll()
     {
+        RefreshIconsLeft();
         if (_busy) return;
         _busy = true;
         Task.Run(() =>
@@ -166,12 +193,8 @@ sealed class Widget : Form
 
         float gap = 5 * scale, colGap = 9 * scale, padX = 4 * scale;
 
-        // Satır etiketleri (CPU / GPU) yalnızca etiketsiz hücre varsa gerekir.
-        var rowLabels = metrics.Any(m => m.Top is { Label: null } || m.Bottom is { Label: null });
-        var rowLabelW = rowLabels ? Math.Max(Measure("CPU", labelFont), Measure("GPU", labelFont)) : 0;
-
         // Sütun genişlikleri: en geniş olası değere göre sabit, böylece pencere titremez.
-        var colW = metrics.Select(m =>
+        var colWAll = metrics.Select(m =>
         {
             float w = 0;
             foreach (var cell in new[] { m.Top, m.Bottom })
@@ -183,7 +206,25 @@ sealed class Widget : Form
             return w;
         }).ToList();
 
-        var contentW = (rowLabels ? rowLabelW + colGap : 0) + colW.Sum() + Math.Max(0, colW.Count - 1) * colGap;
+        // Satır etiketleri (CPU / GPU) yalnızca etiketsiz hücre varsa gerekir.
+        var rowLabelW0 = Math.Max(Measure("CPU", labelFont), Measure("GPU", labelFont));
+        bool NeedsRowLabels(int n) => metrics.Take(n).Any(m => m.Top is { Label: null } || m.Bottom is { Label: null });
+        float ContentW(int n) => (NeedsRowLabels(n) ? rowLabelW0 + colGap : 0) + colWAll.Take(n).Sum() + Math.Max(0, n - 1) * colGap;
+
+        // Sığmayan sütunlar sağdan başlayarak çizilmez (ayar dosyası değişmez); en az bir sütun kalır.
+        var wantedGap = Math.Max(0, _settings.LeftGap ?? (int)(4 * scale));
+        var count = metrics.Count;
+        if (_iconsLeft > taskbar.Left + wantedGap)
+        {
+            var avail = _iconsLeft - (taskbar.Left + wantedGap) - 6 * scale - padX * 2;
+            while (count > 1 && ContentW(count) > avail) count--;
+        }
+        if (count != _shownCount) { DebugLog.Write($"Görünen sütun: {count}/{metrics.Count} (şerit sol={_iconsLeft})"); _shownCount = count; }
+        metrics = metrics.Take(count).ToList();
+        var colW = colWAll.Take(count).ToList();
+        var rowLabels = NeedsRowLabels(count);
+        var rowLabelW = rowLabels ? rowLabelW0 : 0;
+        var contentW = ContentW(count);
         var width = Math.Max((int)Math.Ceiling(24 * scale), (int)Math.Ceiling(contentW + padX * 2));
         var height = Math.Max(1, taskbar.Height);
 

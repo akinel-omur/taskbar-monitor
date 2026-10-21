@@ -15,4 +15,9 @@
     <Version>1.0.0</Version>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Yalnızca UIAutomationClient için (görev çubuğu simge konumları). -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
+  </ItemGroup>
+
 </Project>
