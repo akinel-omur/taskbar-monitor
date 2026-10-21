@@ -16,8 +16,17 @@ static class Program
 
         DebugLog.Enabled = args.Contains("--debug");
 
+        // Güncellemeden sonra yeniden başlatıldıysak eski süreç kapanana kadar bekle (tek örnek kilidi).
+        var after = Array.IndexOf(args, "--after-update");
+        if (after >= 0 && after + 1 < args.Length && int.TryParse(args[after + 1], out var parentPid))
+        {
+            try { using var parent = System.Diagnostics.Process.GetProcessById(parentPid); parent.WaitForExit(15000); }
+            catch { }
+        }
+
         using var single = new Mutex(true, @"Local\TaskbarMonitor.Single", out var isFirst);
         if (!isFirst) return;
+        Updater.CleanupOld();
 
         ApplicationConfiguration.Initialize();
         Application.Run(new Widget());

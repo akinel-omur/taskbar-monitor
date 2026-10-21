@@ -25,6 +25,23 @@ sealed class Widget : Form
         ("Büyük", 11f, 13f, 16f),
     ];
 
+    static readonly (string Name, int Ms)[] RefreshOptions =
+    [
+        ("0,5 saniye", 500),
+        ("1 saniye", 1000),
+        ("2 saniye", 2000),
+        ("5 saniye", 5000),
+    ];
+
+    // Sıcaklık sarı/kırmızı eşiklerine eklenen °C kayması (Metrics.cs'teki eşikler varsayılandır).
+    static readonly (string Name, double Offset)[] TempOptions =
+    [
+        ("Erken uyar (−10 °C)", -10),
+        ("Varsayılan", 0),
+        ("Geç uyar (+5 °C)", 5),
+        ("Renklendirme kapalı", double.PositiveInfinity),
+    ];
+
     readonly Settings _settings = Settings.Load();
     readonly Sensors _sensors = new();
     readonly System.Windows.Forms.Timer _tick = new() { Interval = 1000 };
@@ -43,6 +60,12 @@ sealed class Widget : Form
     Font? _labelFont, _valueFont;
     (int Size, uint Dpi) _fontKey;
     Bitmap? _measureBmp;
+    int _iconsLeft;             // simge şeridinin sol kenarı (ekran px); 0: bilinmiyor
+    bool _iconBusy;
+    int _iconTick;
+    int _shownCount = -1;
+    UpdateInfo? _update;        // bulunmuş yeni sürüm
+    bool _updating;
     Graphics? _measureG;
     readonly UserPreferenceChangedEventHandler _prefChanged;
 
@@ -58,10 +81,11 @@ sealed class Widget : Form
         if (new InstalledFontCollection().Families.Any(f => f.Name == "Segoe UI Variable Text"))
             _fontName = "Segoe UI Variable Text";
 
+        _tick.Interval = RefreshOptions[Math.Clamp(_settings.RefreshIndex, 0, RefreshOptions.Length - 1)].Ms;
         BuildMenu();
         _tick.Tick += (_, _) => Poll();
         _zorder.Tick += (_, _) => KeepOnTop();
-        Load += (_, _) => { Poll(); _tick.Start(); _zorder.Start(); };
+        Load += (_, _) => { Poll(); _tick.Start(); _zorder.Start(); if (_settings.AutoUpdate) _ = CheckUpdatesAsync(manual: false); };
         _prefChanged = (_, _) => { if (IsHandleCreated) BeginInvoke(Redraw); };
         SystemEvents.UserPreferenceChanged += _prefChanged;
         FormClosed += (_, _) =>
@@ -92,8 +116,31 @@ sealed class Widget : Form
 
     // ---------------------------------------------------------------- okuma döngüsü
 
+    /// <summary>UI Automation yavaş olabilir: arka planda, birkaç turda bir ölç.</summary>
+    void RefreshIconsLeft()
+    {
+        if (_iconBusy || _iconTick++ % 3 != 0) return;
+        _iconBusy = true;
+        Task.Run(() =>
+        {
+            try
+            {
+                var tb = FindWindow("Shell_TrayWnd", null);
+                if (tb != 0 && TaskbarIcons.LeftEdge(tb) is { } left && left != _iconsLeft)
+                {
+                    _iconsLeft = left;
+                    DebugLog.Write($"Simge şeridi sol kenarı: {left}");
+                    if (IsHandleCreated && !IsDisposed) BeginInvoke(Redraw);
+                }
+            }
+            catch { }
+            finally { _iconBusy = false; }
+        });
+    }
+
     void Poll()
     {
+        RefreshIconsLeft();
         if (_busy) return;
         _busy = true;
         Task.Run(() =>
@@ -141,6 +188,7 @@ sealed class Widget : Form
             .OfType<Metric>()
             .ToList();
 
+        var tempOffset = TempOptions[Math.Clamp(_settings.TempThreshold, 0, TempOptions.Length - 1)].Offset;
         var light = IsLightTaskbar();
         var textColor = light ? Color.FromArgb(255, 20, 20, 20) : Color.FromArgb(255, 245, 245, 245);
         var dimColor = light ? Color.FromArgb(255, 95, 95, 95) : Color.FromArgb(255, 170, 170, 170);
@@ -166,12 +214,8 @@ sealed class Widget : Form
 
         float gap = 5 * scale, colGap = 9 * scale, padX = 4 * scale;
 
-        // Satır etiketleri (CPU / GPU) yalnızca etiketsiz hücre varsa gerekir.
-        var rowLabels = metrics.Any(m => m.Top is { Label: null } || m.Bottom is { Label: null });
-        var rowLabelW = rowLabels ? Math.Max(Measure("CPU", labelFont), Measure("GPU", labelFont)) : 0;
-
         // Sütun genişlikleri: en geniş olası değere göre sabit, böylece pencere titremez.
-        var colW = metrics.Select(m =>
+        var colWAll = metrics.Select(m =>
         {
             float w = 0;
             foreach (var cell in new[] { m.Top, m.Bottom })
@@ -183,7 +227,25 @@ sealed class Widget : Form
             return w;
         }).ToList();
 
-        var contentW = (rowLabels ? rowLabelW + colGap : 0) + colW.Sum() + Math.Max(0, colW.Count - 1) * colGap;
+        // Satır etiketleri (CPU / GPU) yalnızca etiketsiz hücre varsa gerekir.
+        var rowLabelW0 = Math.Max(Measure("CPU", labelFont), Measure("GPU", labelFont));
+        bool NeedsRowLabels(int n) => metrics.Take(n).Any(m => m.Top is { Label: null } || m.Bottom is { Label: null });
+        float ContentW(int n) => (NeedsRowLabels(n) ? rowLabelW0 + colGap : 0) + colWAll.Take(n).Sum() + Math.Max(0, n - 1) * colGap;
+
+        // Sığmayan sütunlar sağdan başlayarak çizilmez (ayar dosyası değişmez); en az bir sütun kalır.
+        var wantedGap = Math.Max(0, _settings.LeftGap ?? (int)(4 * scale));
+        var count = metrics.Count;
+        if (_iconsLeft > taskbar.Left + wantedGap)
+        {
+            var avail = _iconsLeft - (taskbar.Left + wantedGap) - 6 * scale - padX * 2;
+            while (count > 1 && ContentW(count) > avail) count--;
+        }
+        if (count != _shownCount) { DebugLog.Write($"Görünen sütun: {count}/{metrics.Count} (şerit sol={_iconsLeft})"); _shownCount = count; }
+        metrics = metrics.Take(count).ToList();
+        var colW = colWAll.Take(count).ToList();
+        var rowLabels = NeedsRowLabels(count);
+        var rowLabelW = rowLabels ? rowLabelW0 : 0;
+        var contentW = ContentW(count);
         var width = Math.Max((int)Math.Ceiling(24 * scale), (int)Math.Ceiling(contentW + padX * 2));
         var height = Math.Max(1, taskbar.Height);
 
@@ -219,8 +281,8 @@ sealed class Widget : Form
                 {
                     if ((r == 0 ? m.Top : m.Bottom) is not { } cell) continue;
                     var v = cell.Get(_snap);
-                    var color = v >= cell.Hot ? Color.FromArgb(255, 235, 60, 60)
-                              : v >= cell.Warn ? Color.FromArgb(255, 235, 150, 20)
+                    var color = v >= cell.Hot + tempOffset ? Color.FromArgb(255, 235, 60, 60)
+                              : v >= cell.Warn + tempOffset ? Color.FromArgb(255, 235, 150, 20)
                               : textColor;
                     if (cell.Label is { } label) DrawText(label, labelFont, dimBrush, x0, r, false, 0);
                     using var vb = new SolidBrush(color);
@@ -366,6 +428,31 @@ sealed class Widget : Form
         }
         _menu.Items.Add(sizeMenu);
 
+        var refreshMenu = new ToolStripMenuItem("Yenileme aralığı") { Name = "refresh" };
+        for (var i = 0; i < RefreshOptions.Length; i++)
+        {
+            var index = i;
+            var item = new ToolStripMenuItem(RefreshOptions[i].Name);
+            item.Click += (_, _) =>
+            {
+                _settings.RefreshIndex = index;
+                _tick.Interval = RefreshOptions[index].Ms;
+                _settings.Save();
+            };
+            refreshMenu.DropDownItems.Add(item);
+        }
+        _menu.Items.Add(refreshMenu);
+
+        var tempMenu = new ToolStripMenuItem("Sıcaklık uyarı eşiği") { Name = "temp" };
+        for (var i = 0; i < TempOptions.Length; i++)
+        {
+            var index = i;
+            var item = new ToolStripMenuItem(TempOptions[i].Name);
+            item.Click += (_, _) => { _settings.TempThreshold = index; _settings.Save(); Redraw(); };
+            tempMenu.DropDownItems.Add(item);
+        }
+        _menu.Items.Add(tempMenu);
+
         var auto =new ToolStripMenuItem("Windows ile birlikte başlat") { Name = "auto", CheckOnClick = true };
         auto.CheckedChanged += (_, _) => SetAutostart(auto.Checked);
         _menu.Items.Add(auto);
@@ -373,6 +460,19 @@ sealed class Widget : Form
         var reset = new ToolStripMenuItem("Konumu sıfırla (sol uç)");
         reset.Click += (_, _) => { _settings.LeftGap = null; _settings.Save(); Redraw(); };
         _menu.Items.Add(reset);
+
+        var autoUpdate = new ToolStripMenuItem("Açılışta güncellemeyi denetle") { Name = "autoupdate", CheckOnClick = true };
+        autoUpdate.CheckedChanged += (_, _) =>
+        {
+            if (_settings.AutoUpdate == autoUpdate.Checked) return;
+            _settings.AutoUpdate = autoUpdate.Checked;
+            _settings.Save();
+        };
+        _menu.Items.Add(autoUpdate);
+
+        var update = new ToolStripMenuItem { Name = "update" };
+        update.Click += async (_, _) => await OnUpdateClickAsync();
+        _menu.Items.Add(update);
 
         var exit = new ToolStripMenuItem("Çıkış");
         exit.Click += (_, _) => Close();
@@ -394,9 +494,63 @@ sealed class Widget : Form
             if (i is not ToolStripMenuItem mi) continue;
             if (mi.Tag is Metric m) mi.Checked = _settings.Items.Contains(m.Id);
             else if (mi.Name == "auto") mi.Checked = IsAutostart();
-            else if (mi.Name == "size")
+            else if (mi.Name == "autoupdate") mi.Checked = _settings.AutoUpdate;
+            else if (mi.Name == "update")
+                mi.Text = _update is { } u ? $"Yeni sürüm var: v{u.Version} — güncelle" : $"Güncellemeleri denetle (v{Updater.Current})";
+            else if (mi.Name is "size" or "refresh" or "temp")
+            {
+                var current = mi.Name switch
+                {
+                    "size" => Math.Clamp(_settings.FontSize, 0, FontSizes.Length - 1),
+                    "refresh" => Math.Clamp(_settings.RefreshIndex, 0, RefreshOptions.Length - 1),
+                    _ => Math.Clamp(_settings.TempThreshold, 0, TempOptions.Length - 1),
+                };
                 for (var s = 0; s < mi.DropDownItems.Count; s++)
-                    ((ToolStripMenuItem)mi.DropDownItems[s]).Checked = s == Math.Clamp(_settings.FontSize, 0, FontSizes.Length - 1);
+                    ((ToolStripMenuItem)mi.DropDownItems[s]).Checked = s == current;
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- güncelleme
+
+    async Task CheckUpdatesAsync(bool manual)
+    {
+        try
+        {
+            if (!manual) await Task.Delay(5000); // açılışı yavaşlatma
+            _update = await Updater.CheckAsync();
+            DebugLog.Write(_update is { } u ? $"Yeni sürüm: v{u.Version}" : "Güncel");
+            if (manual && _update is null)
+                MessageBox.Show($"Güncel sürümü kullanıyorsun (v{Updater.Current}).", "Güncelleme", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            DebugLog.Write("Güncelleme denetimi başarısız: " + ex.Message);
+            if (manual) MessageBox.Show("Güncelleme denetlenemedi:\n" + ex.Message, "Güncelleme", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    async Task OnUpdateClickAsync()
+    {
+        if (_updating) return;
+        if (_update is null) { await CheckUpdatesAsync(manual: true); if (_update is null) return; }
+
+        var ask = MessageBox.Show(
+            $"v{_update.Version} indirilip yüklenecek ve uygulama yeniden başlayacak.\n(Şu anki sürüm: v{Updater.Current})\n\nDevam edilsin mi?",
+            "Güncelle", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+        if (ask != DialogResult.Yes) return;
+
+        _updating = true;
+        try
+        {
+            await Updater.InstallAsync(_update);
+            Close(); // yeni süreç bunun kapanmasını bekler
+        }
+        catch (Exception ex)
+        {
+            _updating = false;
+            DebugLog.Write("Güncelleme başarısız: " + ex.Message);
+            MessageBox.Show("Güncelleme yüklenemedi:\n" + ex.Message, "Güncelleme", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 

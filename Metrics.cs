@@ -57,6 +57,15 @@ public sealed class Settings
     /// <summary>Yazı boyutu: 0 küçük, 1 orta (varsayılan), 2 büyük.</summary>
     public int FontSize { get; set; } = 1;
 
+    /// <summary>Açılışta GitHub'da yeni sürüm olup olmadığını sessizce denetle.</summary>
+    public bool AutoUpdate { get; set; } = true;
+
+    /// <summary>Yenileme aralığı: Widget.RefreshOptions dizinine karşılık gelir (varsayılan 1 = 1 sn).</summary>
+    public int RefreshIndex { get; set; } = 1;
+
+    /// <summary>Sıcaklık uyarı eşiği: Widget.TempOptions dizini (0 erken, 1 varsayılan, 2 geç, 3 kapalı).</summary>
+    public int TempThreshold { get; set; } = 1;
+
     /// <summary>Pencerenin sol kenarının görev çubuğunun sol kenarına uzaklığı (piksel). null: varsayılan (sol uç).</summary>
     public int? LeftGap { get; set; }
 
