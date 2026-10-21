@@ -40,6 +40,11 @@ sealed class Widget : Form
     Rectangle _bounds;          // son çizilen pencerenin ekran dikdörtgeni
     Rectangle _taskbar;
     string _fontName = "Segoe UI";
+    Font? _labelFont, _valueFont;
+    (int Size, uint Dpi) _fontKey;
+    Bitmap? _measureBmp;
+    Graphics? _measureG;
+    readonly UserPreferenceChangedEventHandler _prefChanged;
 
     public Widget()
     {
@@ -57,8 +62,15 @@ sealed class Widget : Form
         _tick.Tick += (_, _) => Poll();
         _zorder.Tick += (_, _) => KeepOnTop();
         Load += (_, _) => { Poll(); _tick.Start(); _zorder.Start(); };
-        FormClosed += (_, _) => { _tick.Stop(); _zorder.Stop(); _sensors.Dispose(); };
-        SystemEvents.UserPreferenceChanged += (_, _) => { if (IsHandleCreated) BeginInvoke(Redraw); };
+        _prefChanged = (_, _) => { if (IsHandleCreated) BeginInvoke(Redraw); };
+        SystemEvents.UserPreferenceChanged += _prefChanged;
+        FormClosed += (_, _) =>
+        {
+            _tick.Stop(); _zorder.Stop();
+            SystemEvents.UserPreferenceChanged -= _prefChanged;
+            _sensors.Dispose();
+            _labelFont?.Dispose(); _valueFont?.Dispose(); _measureG?.Dispose(); _measureBmp?.Dispose();
+        };
     }
 
     // ---------------------------------------------------------------- pencere stili
@@ -112,9 +124,9 @@ sealed class Widget : Form
     {
         if (!IsHandleCreated || IsDisposed) return;
 
-        if (ShouldHide())
+        if (ShouldHide(out var why))
         {
-            if (!_hidden) { ShowWindow(Handle, 0 /*SW_HIDE*/); _hidden = true; }
+            if (!_hidden) { ShowWindow(Handle, 0 /*SW_HIDE*/); _hidden = true; DebugLog.Write($"GİZLE: {why}"); }
             return;
         }
 
@@ -134,13 +146,21 @@ sealed class Widget : Form
         var dimColor = light ? Color.FromArgb(255, 95, 95, 95) : Color.FromArgb(255, 170, 170, 170);
 
         var preset = FontSizes[Math.Clamp(_settings.FontSize, 0, FontSizes.Length - 1)];
-        using var labelFont = new Font(_fontName, preset.Label * scale, FontStyle.Regular, GraphicsUnit.Pixel);
-        using var valueFont = new Font(_fontName, preset.Value * scale, FontStyle.Bold, GraphicsUnit.Pixel);
+        var fontKey = (Math.Clamp(_settings.FontSize, 0, FontSizes.Length - 1), dpi);
+        if (_labelFont is null || _valueFont is null || _fontKey != fontKey)
+        {
+            _labelFont?.Dispose(); _valueFont?.Dispose();
+            _labelFont = new Font(_fontName, preset.Label * scale, FontStyle.Regular, GraphicsUnit.Pixel);
+            _valueFont = new Font(_fontName, preset.Value * scale, FontStyle.Bold, GraphicsUnit.Pixel);
+            _fontKey = fontKey;
+        }
+        var labelFont = _labelFont!;
+        var valueFont = _valueFont!;
         var fmt = (StringFormat)StringFormat.GenericTypographic.Clone();
         fmt.FormatFlags |= StringFormatFlags.NoWrap | StringFormatFlags.MeasureTrailingSpaces;
 
-        using var measureBmp = new Bitmap(1, 1);
-        using var mg = Graphics.FromImage(measureBmp);
+        _measureBmp ??= new Bitmap(1, 1);
+        var mg = _measureG ??= Graphics.FromImage(_measureBmp);
         mg.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
         float Measure(string t, Font f) => mg.MeasureString(t, f, PointF.Empty, fmt).Width;
 
@@ -215,7 +235,7 @@ sealed class Widget : Form
         leftGap = Math.Clamp(leftGap, 0, Math.Max(0, taskbar.Width - width));
         _bounds = new Rectangle(taskbar.Left + leftGap, taskbar.Top, width, height);
 
-        if (_hidden) { ShowWindow(Handle, 4 /*SW_SHOWNOACTIVATE*/); _hidden = false; }
+        if (_hidden) { ShowWindow(Handle, 4 /*SW_SHOWNOACTIVATE*/); _hidden = false; DebugLog.Write("GÖSTER"); }
         Present(bmp, _bounds);
     }
 
@@ -262,8 +282,9 @@ sealed class Widget : Form
     }
 
     /// <summary>Tam ekran bir uygulama/oyun öndeyken (görev çubuğu görünmezken) gizle.</summary>
-    bool ShouldHide()
+    bool ShouldHide(out string why)
     {
+        why = "";
         var fg = GetForegroundWindow();
         if (fg == 0 || fg == Handle) return false;
 
@@ -273,7 +294,9 @@ sealed class Widget : Form
 
         if (!GetWindowRect(fg, out var r)) return false;
         var screen = Screen.FromHandle(fg).Bounds;
-        return r.Left <= screen.Left && r.Top <= screen.Top && r.Right >= screen.Right && r.Bottom >= screen.Bottom;
+        var full = r.Left <= screen.Left && r.Top <= screen.Top && r.Right >= screen.Right && r.Bottom >= screen.Bottom;
+        if (full) why = $"sınıf={cls} pencere={r.Left},{r.Top},{r.Right},{r.Bottom} ekran={screen}";
+        return full;
     }
 
     // ---------------------------------------------------------------- fare: sürükle + sağ tık menüsü

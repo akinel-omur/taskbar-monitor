@@ -24,6 +24,8 @@ public sealed class Sensors : IDisposable
     readonly AtkAcpi _atk = new();
     readonly Nvml _nvml = new();
     readonly PdhQuery _pdh = new();
+    readonly object _gate = new();
+    bool _disposed;
     readonly nint? _cPkgPower, _cUtility, _cFreq, _cPerf, _cThermalZone;
 
     public bool HasAsus => _atk.Ok;
@@ -41,6 +43,15 @@ public sealed class Sensors : IDisposable
     }
 
     public Snapshot Read()
+    {
+        lock (_gate)
+        {
+            if (_disposed) return new Snapshot();
+            return ReadCore();
+        }
+    }
+
+    Snapshot ReadCore()
     {
         var s = new Snapshot();
         _pdh.Collect();
@@ -95,9 +106,14 @@ public sealed class Sensors : IDisposable
 
     public void Dispose()
     {
-        _atk.Dispose();
-        _nvml.Dispose();
-        _pdh.Dispose();
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _atk.Dispose();
+            _nvml.Dispose();
+            _pdh.Dispose();
+        }
     }
 
     [StructLayout(LayoutKind.Sequential)]
