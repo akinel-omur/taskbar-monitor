@@ -15,7 +15,7 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - name: Derle
-        run: dotnet build -c Release -warnaserror-
+        run: dotnet build -c Release
       - name: Yayınla (tek dosya)
         run: dotnet publish -c Release --no-build -o publish -p:DebugType=none
       - uses: actions/upload-artifact@v4
