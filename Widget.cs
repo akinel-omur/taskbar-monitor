@@ -46,6 +46,7 @@ sealed class Widget : Form
     readonly Sensors _sensors = new();
     readonly System.Windows.Forms.Timer _tick = new() { Interval = 1000 };
     readonly System.Windows.Forms.Timer _zorder = new() { Interval = 400 };
+    readonly System.Windows.Forms.Timer _menuWatch = new() { Interval = 50 };
     readonly ContextMenuStrip _menu = new();
 
     Snapshot _snap = new();
@@ -90,7 +91,7 @@ sealed class Widget : Form
         SystemEvents.UserPreferenceChanged += _prefChanged;
         FormClosed += (_, _) =>
         {
-            _tick.Stop(); _zorder.Stop();
+            _tick.Stop(); _zorder.Stop(); _menuWatch.Stop();
             SystemEvents.UserPreferenceChanged -= _prefChanged;
             _sensors.Dispose();
             _labelFont?.Dispose(); _valueFont?.Dispose(); _measureG?.Dispose(); _measureBmp?.Dispose();
@@ -478,6 +479,21 @@ sealed class Widget : Form
         exit.Click += (_, _) => Close();
         _menu.Items.Add(exit);
 
+        // Widget NOACTIVATE olduğundan menü dışarı tıklamayı kendisi algılayamaz: menü açıkken
+        // fare düğmesi menünün (ya da açık alt menünün) dışında basılırsa kapat. Yalnızca durum okunur.
+        _menuWatch.Tick += (_, _) =>
+        {
+            if (!_menu.Visible) { _menuWatch.Stop(); return; }
+            if ((GetAsyncKeyState(0x01) & 0x8000) == 0 && (GetAsyncKeyState(0x02) & 0x8000) == 0 && (GetAsyncKeyState(0x04) & 0x8000) == 0) return;
+            var pos = Cursor.Position;
+            if (_menu.Bounds.Contains(pos)) return;
+            foreach (ToolStripItem i in _menu.Items)
+                if (i is ToolStripMenuItem { DropDown.Visible: true } mi && mi.DropDown.Bounds.Contains(pos)) return;
+            _menu.Close();
+        };
+        _menu.Opened += (_, _) => _menuWatch.Start();
+        _menu.Closed += (_, _) => _menuWatch.Stop();
+
         // Gösterge işaretlerken menü kapanmasın
         _menu.Closing += (_, e) =>
         {
@@ -578,6 +594,7 @@ sealed class Widget : Form
 
     [DllImport("user32.dll", SetLastError = true)]
     static extern bool UpdateLayeredWindow(nint hwnd, nint hdcDst, ref POINT pptDst, ref SIZE psize, nint hdcSrc, ref POINT pptSrc, int crKey, ref BLENDFUNCTION pblend, int flags);
+    [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vKey);
     [DllImport("user32.dll")] static extern bool SetWindowPos(nint hwnd, nint after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] static extern bool ShowWindow(nint hwnd, int cmd);
     [DllImport("user32.dll")] static extern nint GetDC(nint hwnd);
