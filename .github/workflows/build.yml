@@ -37,4 +37,9 @@ jobs:
         run: |
           $hash = (Get-FileHash publish/TaskbarMonitor.exe -Algorithm SHA256).Hash.ToLower()
           "$hash  TaskbarMonitor.exe" | Out-File -Encoding ascii publish/TaskbarMonitor.exe.sha256
-          gh release create $env:GITHUB_REF_NAME publish/TaskbarMonitor.exe publish/TaskbarMonitor.exe.sha256 --title $env:GITHUB_REF_NAME --generate-notes
+          $files = @('publish/TaskbarMonitor.exe', 'publish/TaskbarMonitor.exe.sha256')
+          # Release arayüzden önce açıldıysa (etiket yayınlarken oluşur) dosyaları ona yükle, yoksa oluştur.
+          gh release view $env:GITHUB_REF_NAME *> $null
+          if ($LASTEXITCODE -eq 0) { gh release upload $env:GITHUB_REF_NAME @files --clobber }
+          else { gh release create $env:GITHUB_REF_NAME @files --title $env:GITHUB_REF_NAME --generate-notes }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
