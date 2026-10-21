@@ -25,6 +25,23 @@ sealed class Widget : Form
         ("Büyük", 11f, 13f, 16f),
     ];
 
+    static readonly (string Name, int Ms)[] RefreshOptions =
+    [
+        ("0,5 saniye", 500),
+        ("1 saniye", 1000),
+        ("2 saniye", 2000),
+        ("5 saniye", 5000),
+    ];
+
+    // Sıcaklık sarı/kırmızı eşiklerine eklenen °C kayması (Metrics.cs'teki eşikler varsayılandır).
+    static readonly (string Name, double Offset)[] TempOptions =
+    [
+        ("Erken uyar (−10 °C)", -10),
+        ("Varsayılan", 0),
+        ("Geç uyar (+5 °C)", 5),
+        ("Renklendirme kapalı", double.PositiveInfinity),
+    ];
+
     readonly Settings _settings = Settings.Load();
     readonly Sensors _sensors = new();
     readonly System.Windows.Forms.Timer _tick = new() { Interval = 1000 };
@@ -62,6 +79,7 @@ sealed class Widget : Form
         if (new InstalledFontCollection().Families.Any(f => f.Name == "Segoe UI Variable Text"))
             _fontName = "Segoe UI Variable Text";
 
+        _tick.Interval = RefreshOptions[Math.Clamp(_settings.RefreshIndex, 0, RefreshOptions.Length - 1)].Ms;
         BuildMenu();
         _tick.Tick += (_, _) => Poll();
         _zorder.Tick += (_, _) => KeepOnTop();
@@ -168,6 +186,7 @@ sealed class Widget : Form
             .OfType<Metric>()
             .ToList();
 
+        var tempOffset = TempOptions[Math.Clamp(_settings.TempThreshold, 0, TempOptions.Length - 1)].Offset;
         var light = IsLightTaskbar();
         var textColor = light ? Color.FromArgb(255, 20, 20, 20) : Color.FromArgb(255, 245, 245, 245);
         var dimColor = light ? Color.FromArgb(255, 95, 95, 95) : Color.FromArgb(255, 170, 170, 170);
@@ -260,8 +279,8 @@ sealed class Widget : Form
                 {
                     if ((r == 0 ? m.Top : m.Bottom) is not { } cell) continue;
                     var v = cell.Get(_snap);
-                    var color = v >= cell.Hot ? Color.FromArgb(255, 235, 60, 60)
-                              : v >= cell.Warn ? Color.FromArgb(255, 235, 150, 20)
+                    var color = v >= cell.Hot + tempOffset ? Color.FromArgb(255, 235, 60, 60)
+                              : v >= cell.Warn + tempOffset ? Color.FromArgb(255, 235, 150, 20)
                               : textColor;
                     if (cell.Label is { } label) DrawText(label, labelFont, dimBrush, x0, r, false, 0);
                     using var vb = new SolidBrush(color);
@@ -407,6 +426,31 @@ sealed class Widget : Form
         }
         _menu.Items.Add(sizeMenu);
 
+        var refreshMenu = new ToolStripMenuItem("Yenileme aralığı") { Name = "refresh" };
+        for (var i = 0; i < RefreshOptions.Length; i++)
+        {
+            var index = i;
+            var item = new ToolStripMenuItem(RefreshOptions[i].Name);
+            item.Click += (_, _) =>
+            {
+                _settings.RefreshIndex = index;
+                _tick.Interval = RefreshOptions[index].Ms;
+                _settings.Save();
+            };
+            refreshMenu.DropDownItems.Add(item);
+        }
+        _menu.Items.Add(refreshMenu);
+
+        var tempMenu = new ToolStripMenuItem("Sıcaklık uyarı eşiği") { Name = "temp" };
+        for (var i = 0; i < TempOptions.Length; i++)
+        {
+            var index = i;
+            var item = new ToolStripMenuItem(TempOptions[i].Name);
+            item.Click += (_, _) => { _settings.TempThreshold = index; _settings.Save(); Redraw(); };
+            tempMenu.DropDownItems.Add(item);
+        }
+        _menu.Items.Add(tempMenu);
+
         var auto =new ToolStripMenuItem("Windows ile birlikte başlat") { Name = "auto", CheckOnClick = true };
         auto.CheckedChanged += (_, _) => SetAutostart(auto.Checked);
         _menu.Items.Add(auto);
@@ -435,9 +479,17 @@ sealed class Widget : Form
             if (i is not ToolStripMenuItem mi) continue;
             if (mi.Tag is Metric m) mi.Checked = _settings.Items.Contains(m.Id);
             else if (mi.Name == "auto") mi.Checked = IsAutostart();
-            else if (mi.Name == "size")
+            else if (mi.Name is "size" or "refresh" or "temp")
+            {
+                var current = mi.Name switch
+                {
+                    "size" => Math.Clamp(_settings.FontSize, 0, FontSizes.Length - 1),
+                    "refresh" => Math.Clamp(_settings.RefreshIndex, 0, RefreshOptions.Length - 1),
+                    _ => Math.Clamp(_settings.TempThreshold, 0, TempOptions.Length - 1),
+                };
                 for (var s = 0; s < mi.DropDownItems.Count; s++)
-                    ((ToolStripMenuItem)mi.DropDownItems[s]).Checked = s == Math.Clamp(_settings.FontSize, 0, FontSizes.Length - 1);
+                    ((ToolStripMenuItem)mi.DropDownItems[s]).Checked = s == current;
+            }
         }
     }
 
