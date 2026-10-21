@@ -162,9 +162,19 @@ sealed class Widget : Form
         });
     }
 
+    /// <summary>
+    /// 400 ms'lik zamanlayıcı: tam ekran kontrolü yenileme aralığından bağımsız olsun (5 sn aralıkta widget
+    /// tam ekran videonun üstünde 5 sn görünür kalıyordu), sonra en üstte tut.
+    /// </summary>
     void KeepOnTop()
     {
-        if (_hidden || !IsHandleCreated) return;
+        if (!IsHandleCreated || IsDisposed) return;
+        if (ShouldHide(out var why))
+        {
+            if (!_hidden) { ShowWindow(Handle, 0 /*SW_HIDE*/); _hidden = true; DebugLog.Write($"GİZLE: {why}"); }
+            return;
+        }
+        if (_hidden) { Redraw(); return; } // konumu ve çizimi yeniden kurup gösterir
         SetWindowPos(Handle, new nint(-1), 0, 0, 0, 0, 0x0002 | 0x0001 | 0x0010 | 0x0200); // NOMOVE|NOSIZE|NOACTIVATE|NOOWNERZORDER
     }
 
@@ -355,7 +365,9 @@ sealed class Widget : Form
 
         var cls = new System.Text.StringBuilder(64);
         GetClassName(fg, cls, cls.Capacity);
-        var shell = cls.ToString() is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd";
+        // Explorer'ın kendi tam ekran boyutlu pencereleri (Görev Görünümü, Başlat vb.) görev çubuğunu gizlemez.
+        var shell = cls.ToString() is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd"
+            or "XamlWindow" or "XamlExplorerHostIslandWindow" or "Windows.UI.Core.CoreWindow";
 
         var full = false;
         RECT r = default;
