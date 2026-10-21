@@ -65,6 +65,8 @@ sealed class Widget : Form
     bool _iconBusy;
     int _iconTick;
     int _shownCount = -1;
+    nint _lastFg;               // tam ekran tanı günlüğü için son ön plan penceresi
+    bool _lastFull;
     UpdateInfo? _update;        // bulunmuş yeni sürüm
     bool _updating;
     Graphics? _measureG;
@@ -353,11 +355,25 @@ sealed class Widget : Form
 
         var cls = new System.Text.StringBuilder(64);
         GetClassName(fg, cls, cls.Capacity);
-        if (cls.ToString() is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd") return false;
+        var shell = cls.ToString() is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd";
 
-        if (!GetWindowRect(fg, out var r)) return false;
-        var screen = Screen.FromHandle(fg).Bounds;
-        var full = r.Left <= screen.Left && r.Top <= screen.Top && r.Right >= screen.Right && r.Bottom >= screen.Bottom;
+        var full = false;
+        RECT r = default;
+        var screen = Rectangle.Empty;
+        if (!shell && GetWindowRect(fg, out r))
+        {
+            screen = Screen.FromHandle(fg).Bounds;
+            full = r.Left <= screen.Left && r.Top <= screen.Top && r.Right >= screen.Right && r.Bottom >= screen.Bottom;
+        }
+
+        // Tanı: ön plan penceresi ya da sonucu değişince kaydet (gizlenmese de nedenini görmek için).
+        if (DebugLog.Enabled && (fg != _lastFg || full != _lastFull))
+        {
+            _lastFg = fg; _lastFull = full;
+            var state = SHQueryUserNotificationState(out var q) == 0 ? q.ToString() : "?";
+            DebugLog.Write($"ÖN PLAN: sınıf={cls} kabuk={shell} pencere={r.Left},{r.Top},{r.Right},{r.Bottom} ekran={screen} tamEkran={full} bildirimDurumu={state}");
+        }
+
         if (full) why = $"sınıf={cls} pencere={r.Left},{r.Top},{r.Right},{r.Bottom} ekran={screen}";
         return full;
     }
@@ -594,6 +610,7 @@ sealed class Widget : Form
 
     [DllImport("user32.dll", SetLastError = true)]
     static extern bool UpdateLayeredWindow(nint hwnd, nint hdcDst, ref POINT pptDst, ref SIZE psize, nint hdcSrc, ref POINT pptSrc, int crKey, ref BLENDFUNCTION pblend, int flags);
+    [DllImport("shell32.dll")] static extern int SHQueryUserNotificationState(out int state);
     [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vKey);
     [DllImport("user32.dll")] static extern bool SetWindowPos(nint hwnd, nint after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] static extern bool ShowWindow(nint hwnd, int cmd);
